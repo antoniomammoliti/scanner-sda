@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scanner Colli SDA</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #0047bb; /* Blu Poste/SDA */
+      --primary-hover: #00358e;
+      --accent: #eedc00; /* Giallo Poste/SDA */
+      --ok-bg: #dcfce7;
+      --ok-text: #166534;
+      --dup-bg: #fee2e2;
+      --dup-text: #991b1b;
+      --dup-border: #ef4444;
+    }
+
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; padding: 14px; background: var(--bg); color: var(--text); }
+
+    .container { max-width: 760px; margin: 0 auto; }
+
+    .header {
+      background: var(--primary);
+      color: #fff;
+      padding: 14px 18px;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      border-bottom: 4px solid var(--accent);
+    }
+    .header h1 { margin: 0; font-size: 1.15rem; font-weight: 700; }
+    .header span { font-size: 0.8rem; opacity: 0.9; }
+
+    /* Contatori */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    .stat-val { font-size: 1.65rem; font-weight: 800; line-height: 1.1; }
+    .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+    .val-unique { color: #15803d; }
+    .val-dup { color: #dc2626; }
+    .val-total { color: var(--primary); }
+
+    /* Banner Allarme / Conferma */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .alert.ok { display: flex; background: var(--ok-bg); color: var(--ok-text); border: 1px solid #86efac; }
+    .alert.dup { display: flex; background: var(--dup-bg); color: var(--dup-text); border: 2px solid var(--dup-border); animation: shake 0.35s ease; }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+
+    /* Controlli Input & Fotocamera */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .input-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    input[type="text"] {
+      flex: 1;
+      padding: 11px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-family: monospace;
+      text-transform: uppercase;
+    }
+    input[type="text"]:focus { outline: 2px solid var(--primary); border-color: transparent; }
+
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-cam { background: #0f172a; color: #fff; width: 100%; }
+    .btn-cam.active { background: #dc2626; }
+    .btn-sec { background: #e2e8f0; color: #1e293b; font-size: 0.82rem; padding: 7px 11px; }
+    .btn-sec:hover { background: #cbd5e1; }
+    .btn-danger { background: #fee2e2; color: #991b1b; font-size: 0.82rem; padding: 7px 11px; }
+
+    #reader { width: 100%; margin-top: 10px; border-radius: 8px; overflow: hidden; display: none; }
+    .cam-note { font-size: 0.78rem; color: var(--muted); margin-top: 6px; text-align: center; }
+
+    /* Toolbar Lista */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .filters { display: flex; gap: 6px; }
+    .filter-btn { background: #f1f5f9; color: #475569; padding: 6px 10px; font-size: 0.8rem; }
+    .filter-btn.active { background: var(--primary); color: #fff; }
+    .actions { display: flex; gap: 6px; }
+
+    /* Elenco Colli */
+    .list { max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.92rem;
+    }
+    .item:last-child { border-bottom: none; }
+    .item.is-dup { background: #fef2f2; }
+    .item-code { font-family: monospace; font-weight: 700; font-size: 1rem; }
+    .item-meta { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 99px;
+      margin-right: 8px;
+    }
+    .badge-ok { background: var(--ok-bg); color: var(--ok-text); }
+    .badge-dup { background: var(--dup-bg); color: var(--dup-text); }
+    .del-btn { background: transparent; color: #94a3b8; font-size: 1rem; padding: 4px 8px; }
+    .del-btn:hover { color: #dc2626; }
+    .empty { text-align: center; padding: 28px; color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Controllo Colli SDA</h1>
+      <span>Conteggio &amp; Verifica Duplicati</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-val val-unique" id="countUnique">0</div>
+        <div class="stat-label">Colli Unici</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val val-dup" id="countDup">0</div>
+        <div class="stat-label">Duplicati</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val val-total" id="countTotal">0</div>
+        <div class="stat-label">Letture Totali</div>
+      </div>
+    </div>
+
+    <div id="alertBox" class="alert">
+      <span id="alertText"></span>
+      <span id="alertTime" style="font-size:0.8rem; opacity:0.8;"></span>
+    </div>
+
+    <div class="card">
+      <div class="input-row">
+        <input type="text" id="manualInput" placeholder="Spara con lettore o digita codice SDA..." autocomplete="off" autofocus />
+        <button class="btn-primary" onclick="handleManualAdd()">Aggiungi</button>
+      </div>
+      <button id="camBtn" class="btn-cam" onclick="toggleCamera()">Attiva Fotocamera</button>
+      <div id="reader"></div>
+      <div class="cam-note">Supporta lettori USB/Bluetooth a emulazione tastiera e fotocamera (Code 128 / EAN).</div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <div class="filters">
+          <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">Tutti</button>
+          <button class="filter-btn" data-filter="unique" onclick="setFilter('unique', this)">Unici</button>
+          <button class="filter-btn" data-filter="dup" onclick="setFilter('dup', this)">Duplicati</button>
+        </div>
+        <div class="actions">
+          <button class="btn-sec" onclick="copyUnique()">Copia Unici</button>
+          <button class="btn-sec" onclick="exportCSV()">Esporta CSV</button>
+          <button class="btn-danger" onclick="clearAll()">Svuota</button>
+        </div>
+      </div>
+      <div class="list" id="scanList"></div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'sda_colli_scans_v1';
+    let scans = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    let currentFilter = 'all';
+    let html5QrCode = null;
+    let isScanning = false;
+    let lastScanCode = '';
+    let lastScanTime = 0;
+
+    // Sintetizzatore segnali acustici
+    function playTone(type) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const now = ctx.currentTime;
+        if (type === 'ok') {
+          [880, 1174].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = freq;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.15, now + i * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.08);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.08);
+            osc.stop(now + i * 0.08 + 0.09);
+          });
+        } else {
+          [220, 180].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = freq;
+            osc.type = 'sawtooth';
+            gain.gain.setValueAtTime(0.25, now + i * 0.16);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.16 + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.16);
+            osc.stop(now + i * 0.16 + 0.16);
+          });
+        }
+      } catch (e) {}
+    }
+
+    function registerCode(rawCode) {
+      const code = rawCode.trim().toUpperCase();
+      if (!code) return;
+
+      // Evita doppio scatto accidentale della fotocamera nello stesso secondo
+      const now = Date.now();
+      if (code === lastScanCode && (now - lastScanTime) < 1500) return;
+      lastScanCode = code;
+      lastScanTime = now;
+
+      const alreadyExists = scans.some(item => item.code === code);
+      const timeStr = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      scans.unshift({
+        id: now + Math.random(),
+        code: code,
+        time: timeStr,
+        isDuplicate: alreadyExists
+      });
+
+      saveAndRender();
+      showAlert(code, alreadyExists, timeStr);
+
+      if (alreadyExists) {
+        playTone('dup');
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      } else {
+        playTone('ok');
+        if (navigator.vibrate) navigator.vibrate(80);
+      }
+    }
+
+    function showAlert(code, isDup, timeStr) {
+      const box = document.getElementById('alertBox');
+      const text = document.getElementById('alertText');
+      const time = document.getElementById('alertTime');
+
+      box.className = 'alert ' + (isDup ? 'dup' : 'ok');
+      text.textContent = isDup
+        ? `ATTENZIONE: CODICE RIPETUTO (${code})`
+        : `COLLO REGISTRATO: ${code}`;
+      time.textContent = timeStr;
+    }
+
+    function recalculateDuplicates() {
+      const seen = new Set();
+      // Ricalcola dal più vecchio al più nuovo
+      const chronological = [...scans].reverse();
+      chronological.forEach(item => {
+        if (seen.has(item.code)) {
+          item.isDuplicate = true;
+        } else {
+          item.isDuplicate = false;
+          seen.add(item.code);
+        }
+      });
+      scans = chronological.reverse();
+    }
+
+    function saveAndRender() {
+      recalculateDuplicates();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(scans));
+
+      const uniqueCount = scans.filter(s => !s.isDuplicate).length;
+      const dupCount = scans.filter(s => s.isDuplicate).length;
+
+      document.getElementById('countUnique').textContent = uniqueCount;
+      document.getElementById('countDup').textContent = dupCount;
+      document.getElementById('countTotal').textContent = scans.length;
+
+      const listEl = document.getElementById('scanList');
+      const filtered = scans.filter(item => {
+        if (currentFilter === 'unique') return !item.isDuplicate;
+        if (currentFilter === 'dup') return item.isDuplicate;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div class="empty">Nessun collo presente in questa vista.</div>';
+        return;
+      }
+
+      listEl.innerHTML = filtered.map((item, idx) => `
+        <div class="item ${item.isDuplicate ? 'is-dup' : ''}">
+          <div>
+            <div class="item-code">${item.code}</div>
+            <div class="item-meta">Letto alle ${item.time}</div>
+          </div>
+          <div>
+            <span class="badge ${item.isDuplicate ? 'badge-dup' : 'badge-ok'}">
+              ${item.isDuplicate ? 'RIPETUTO' : 'OK'}
+            </span>
+            <button class="del-btn" title="Rimuovi" onclick="removeItem(${item.id})">&times;</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function handleManualAdd() {
+      const input = document.getElementById('manualInput');
+      registerCode(input.value);
+      input.value = '';
+      input.focus();
+    }
+
+    document.getElementById('manualInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleManualAdd();
+      }
+    });
+
+    function removeItem(id) {
+      scans = scans.filter(item => item.id !== id);
+      saveAndRender();
+    }
+
+    function setFilter(filter, btn) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      saveAndRender();
+    }
+
+    function copyUnique() {
+      const uniqueCodes = [...new Set(scans.map(s => s.code))].reverse();
+      if (uniqueCodes.length === 0) return alert('Nessun codice da copiare.');
+      navigator.clipboard.writeText(uniqueCodes.join('\n')).then(() => {
+        alert(`Copiati ${uniqueCodes.length} codici unici negli appunti.`);
+      });
+    }
+
+    function exportCSV() {
+      if (scans.length === 0) return alert('Nessun dato da esportare.');
+      const rows = [['Codice_SDA', 'Stato', 'Ora_Lettura']];
+      [...scans].reverse().forEach(s => {
+        rows.push([s.code, s.isDuplicate ? 'DUPLICATO' : 'UNICO', s.time]);
+      });
+      const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(r => r.join(';')).join('\n');
+      const link = document.createElement('a');
+      link.setAttribute('href', encodeURI(csvContent));
+      link.setAttribute('download', `colli_sda_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function clearAll() {
+      if (scans.length === 0) return;
+      if (confirm('Vuoi cancellare tutto lo storico dei colli scansionati?')) {
+        scans = [];
+        document.getElementById('alertBox').className = 'alert';
+        saveAndRender();
+      }
+    }
+
+    async function toggleCamera() {
+      const btn = document.getElementById('camBtn');
+      const readerEl = document.getElementById('reader');
+
+      if (isScanning && html5QrCode) {
+        await html5QrCode.stop();
+        readerEl.style.display = 'none';
+        btn.textContent = 'Attiva Fotocamera';
+        btn.classList.remove('active');
+        isScanning = false;
+        return;
+      }
+
+      readerEl.style.display = 'block';
+      btn.textContent = 'Ferma Fotocamera';
+      btn.classList.add('active');
+      isScanning = true;
+
+      html5QrCode = new Html5Qrcode("reader");
+      const config = {
+        fps: 12,
+        qrbox: { width: 280, height: 110 },
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.ITF,
+          Html5QrcodeSupportedFormats.QR_CODE
+        ]
+      };
+
+      try {
+        await html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+          registerCode(decodedText);
+        });
+      } catch (err) {
+        alert("Impossibile avviare la fotocamera: " + err + "\n\nNota per Google Sites: se la fotocamera è bloccata dall'iframe di Google Sites, usa un lettore barcode USB/Bluetooth oppure ospita questo file HTML su GitHub Pages / Netlify.");
+        readerEl.style.display = 'none';
+        btn.textContent = 'Attiva Fotocamera';
+        btn.classList.remove('active');
+        isScanning = false;
+      }
+    }
+
+    saveAndRender();
+  </script>
+</body>
+</html>
