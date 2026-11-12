@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Scanner Colli SDA</title>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
@@ -96,31 +96,33 @@
       padding: 11px 12px;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
-      font-size: 1rem;
+      font-size: 16px; /* Evita zoom automatico su iPhone */
       font-family: monospace;
       text-transform: uppercase;
     }
     input[type="text"]:focus { outline: 2px solid var(--primary); border-color: transparent; }
 
     button {
-      padding: 10px 14px;
+      padding: 11px 14px;
       border: none;
       border-radius: 8px;
       font-weight: 600;
-      font-size: 0.9rem;
+      font-size: 0.92rem;
       cursor: pointer;
       transition: background 0.15s;
+      -webkit-tap-highlight-color: transparent;
     }
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-primary:hover { background: var(--primary-hover); }
-    .btn-cam { background: #0f172a; color: #fff; width: 100%; }
+    .btn-cam { background: #0f172a; color: #fff; width: 100%; font-size: 1rem; padding: 13px; }
     .btn-cam.active { background: #dc2626; }
     .btn-sec { background: #e2e8f0; color: #1e293b; font-size: 0.82rem; padding: 7px 11px; }
     .btn-sec:hover { background: #cbd5e1; }
     .btn-danger { background: #fee2e2; color: #991b1b; font-size: 0.82rem; padding: 7px 11px; }
 
-    #reader { width: 100%; margin-top: 10px; border-radius: 8px; overflow: hidden; display: none; }
-    .cam-note { font-size: 0.78rem; color: var(--muted); margin-top: 6px; text-align: center; }
+    #reader { width: 100%; margin-top: 12px; border-radius: 8px; overflow: hidden; display: none; background: #000; }
+    #reader video { border-radius: 8px; object-fit: cover; }
+    .cam-note { font-size: 0.78rem; color: var(--muted); margin-top: 8px; text-align: center; }
 
     /* Toolbar Lista */
     .toolbar {
@@ -159,7 +161,7 @@
     }
     .badge-ok { background: var(--ok-bg); color: var(--ok-text); }
     .badge-dup { background: var(--dup-bg); color: var(--dup-text); }
-    .del-btn { background: transparent; color: #94a3b8; font-size: 1rem; padding: 4px 8px; }
+    .del-btn { background: transparent; color: #94a3b8; font-size: 1.1rem; padding: 4px 8px; }
     .del-btn:hover { color: #dc2626; }
     .empty { text-align: center; padding: 28px; color: var(--muted); font-size: 0.9rem; }
   </style>
@@ -193,12 +195,12 @@
 
     <div class="card">
       <div class="input-row">
-        <input type="text" id="manualInput" placeholder="Spara con lettore o digita codice SDA..." autocomplete="off" autofocus />
+        <input type="text" id="manualInput" placeholder="Spara con lettore o digita codice SDA..." autocomplete="off" />
         <button class="btn-primary" onclick="handleManualAdd()">Aggiungi</button>
       </div>
       <button id="camBtn" class="btn-cam" onclick="toggleCamera()">Attiva Fotocamera</button>
       <div id="reader"></div>
-      <div class="cam-note">Supporta lettori USB/Bluetooth a emulazione tastiera e fotocamera (Code 128 / EAN).</div>
+      <div class="cam-note">Su iPhone apri questo link direttamente in Safari e tieni il telefono a 18-25 cm dall'etichetta.</div>
     </div>
 
     <div class="card">
@@ -226,35 +228,47 @@
     let isScanning = false;
     let lastScanCode = '';
     let lastScanTime = 0;
+    let audioCtx = null;
 
-    // Sintetizzatore segnali acustici
+    // Sblocca Web Audio su iOS al primo tocco
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) audioCtx = new AudioContextClass();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
     function playTone(type) {
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const now = ctx.currentTime;
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
         if (type === 'ok') {
           [880, 1174].forEach((freq, i) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
             osc.frequency.value = freq;
             osc.type = 'sine';
-            gain.gain.setValueAtTime(0.15, now + i * 0.08);
+            gain.gain.setValueAtTime(0.18, now + i * 0.08);
             gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.08);
             osc.connect(gain);
-            gain.connect(ctx.destination);
+            gain.connect(audioCtx.destination);
             osc.start(now + i * 0.08);
             osc.stop(now + i * 0.08 + 0.09);
           });
         } else {
           [220, 180].forEach((freq, i) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
             osc.frequency.value = freq;
             osc.type = 'sawtooth';
-            gain.gain.setValueAtTime(0.25, now + i * 0.16);
+            gain.gain.setValueAtTime(0.28, now + i * 0.16);
             gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.16 + 0.15);
             osc.connect(gain);
-            gain.connect(ctx.destination);
+            gain.connect(audioCtx.destination);
             osc.start(now + i * 0.16);
             osc.stop(now + i * 0.16 + 0.16);
           });
@@ -266,9 +280,9 @@
       const code = rawCode.trim().toUpperCase();
       if (!code) return;
 
-      // Evita doppio scatto accidentale della fotocamera nello stesso secondo
+      // Evita doppia lettura accidentale della stessa etichetta entro 1.8 secondi
       const now = Date.now();
-      if (code === lastScanCode && (now - lastScanTime) < 1500) return;
+      if (code === lastScanCode && (now - lastScanTime) < 1800) return;
       lastScanCode = code;
       lastScanTime = now;
 
@@ -308,7 +322,6 @@
 
     function recalculateDuplicates() {
       const seen = new Set();
-      // Ricalcola dal più vecchio al più nuovo
       const chronological = [...scans].reverse();
       chronological.forEach(item => {
         if (seen.has(item.code)) {
@@ -344,7 +357,7 @@
         return;
       }
 
-      listEl.innerHTML = filtered.map((item, idx) => `
+      listEl.innerHTML = filtered.map(item => `
         <div class="item ${item.isDuplicate ? 'is-dup' : ''}">
           <div>
             <div class="item-code">${item.code}</div>
@@ -361,6 +374,7 @@
     }
 
     function handleManualAdd() {
+      initAudio();
       const input = document.getElementById('manualInput');
       registerCode(input.value);
       input.value = '';
@@ -419,11 +433,15 @@
     }
 
     async function toggleCamera() {
+      initAudio(); // Attiva subito i suoni su Safari al tap sul pulsante
       const btn = document.getElementById('camBtn');
       const readerEl = document.getElementById('reader');
 
       if (isScanning && html5QrCode) {
-        await html5QrCode.stop();
+        try {
+          await html5QrCode.stop();
+          html5QrCode.clear();
+        } catch (e) {}
         readerEl.style.display = 'none';
         btn.textContent = 'Attiva Fotocamera';
         btn.classList.remove('active');
@@ -436,10 +454,20 @@
       btn.classList.add('active');
       isScanning = true;
 
-      html5QrCode = new Html5Qrcode("reader");
+      html5QrCode = new Html5Qrcode("reader", {
+        useBarCodeDetectorIfSupported: true,
+        verbose: false
+      });
+
       const config = {
-        fps: 12,
-        qrbox: { width: 280, height: 110 },
+        fps: 15,
+        qrbox: { width: 290, height: 115 },
+        aspectRatio: 1.777778,
+        videoConstraints: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
         formatsToSupport: [
           Html5QrcodeSupportedFormats.CODE_128,
           Html5QrcodeSupportedFormats.CODE_39,
@@ -450,11 +478,13 @@
       };
 
       try {
-        await html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-          registerCode(decodedText);
-        });
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          config,
+          (decodedText) => { registerCode(decodedText); }
+        );
       } catch (err) {
-        alert("Impossibile avviare la fotocamera: " + err + "\n\nNota per Google Sites: se la fotocamera è bloccata dall'iframe di Google Sites, usa un lettore barcode USB/Bluetooth oppure ospita questo file HTML su GitHub Pages / Netlify.");
+        alert("Errore fotocamera iPhone: " + err + "\n\nAssicurati di aver aperto l'URL diretto di GitHub Pages su Safari (fuori da Google Sites) e consentito l'accesso alla fotocamera.");
         readerEl.style.display = 'none';
         btn.textContent = 'Attiva Fotocamera';
         btn.classList.remove('active');
